@@ -1,0 +1,9 @@
+.idea/
+*.suo
+*.user
+*.sln.docstates
+
+[Dd]ebug/
+[Rr]elease/
+[Bb]in/
+[Oo]bj/
