@@ -33,7 +33,8 @@ public class Program
         // >>> -------------------------------- <<<
         // >>> Process only unprocessed records <<<
         // >>> -------------------------------- <<<
-        var allOffers = File.ReadAllLines(inputFile).Select((value, index) => new {value, index})
+        var allOffers = File.ReadAllLines(inputFile).Where(s => !string.IsNullOrEmpty(s))
+            .Select((value, index) => new {value, index})
             .ToDictionary(pair => pair.index, pair => pair.value);
         var offers = FilterOffersByUnprocessed(outputFile, allOffers);
         ProcessAllOffers(outputFile, offers).Wait();
@@ -43,9 +44,12 @@ public class Program
         // >>> ----------------------- <<<
         // var offers = GetOutputRecordsToRetry(outputFile);
         // ProcessAllOffers(outputFile, offers).Wait();
+        
+        Console.WriteLine("Done!");
     }
 
 
+    // Process all offers (multiple browser async processes)
     private static async Task ProcessAllOffers(string outputFile, Dictionary<int, string> offers)
     {
         foreach (var offerBatch in DivideDictionary(offers, 25))
@@ -64,6 +68,7 @@ public class Program
         }
     }
     
+    // Process single offer batch (one browser async process)
     private static async Task ProcessOffers(string outputFile, Dictionary<int, string> offers)
     {
         Console.WriteLine($"Started website process.");
@@ -75,12 +80,27 @@ public class Program
             Console.WriteLine($"Processing {id} => {url}");
 
             try { wr.NavigateTo(url); } 
-            catch (Exception e) {
-                File.AppendAllText(outputFile, $"{id}|{url}|navigation-error|null|null" + Environment.NewLine);
+            catch (Exception e)
+            {
+                await File.AppendAllTextAsync(outputFile, new OutputCsvRecord(
+                    id: id, 
+                    url: url,
+                    title: "navigation-error",
+                    price: -1, 
+                    phoneNumber: "null")
+                    .ToString()
+                );
                 continue;
             }
             
-            File.AppendAllText(outputFile, $"{id}|{url}|{os.GetTitle()}|{os.GetPrice()}|{await os.GetPhoneNumber(id)}" + Environment.NewLine); // to się może kleszczyć
+            await File.AppendAllTextAsync(outputFile, new OutputCsvRecord(
+                id: id, 
+                url: url,
+                title: os.GetTitle(),
+                price: os.GetPrice(),
+                phoneNumber: await os.GetPhoneNumber(id))
+                .ToString()
+            );
         }
         
         wr.Dispose();
@@ -88,24 +108,18 @@ public class Program
 
     private static Dictionary<int, string> GetOutputRecordsToRetry(string outputFile)
     {
-        var lines = File.ReadAllLines(outputFile).ToList();
-        var csv = lines.Select(line => (line.Split(',')).ToList());
+        var lines = File.ReadAllLines(outputFile).Where(s => !string.IsNullOrEmpty(s)).ToList();
+        var csv = lines.Select(line => new OutputCsvRecord(line)).ToList();
 
         var outputLines = lines.ToList();
         var dict = new Dictionary<int, string>();
         
         foreach (var line in csv)
         {
-            var id = int.Parse(line[0]);
-            var url = line[1];
-            var title = line[2];
-            var price = line[3];
-            var number = line[4];
-
-            if (number == "timeout")
+            if (line.PhoneNumber == "timeout")
             {
-                dict.Add(id, url);
-                outputLines.Remove(lines.First(l => int.Parse(l.Split(',')[0]) == id));
+                dict.Add(line.Id, line.Url);
+                outputLines.Remove(lines.First(l => int.Parse(l.Split(',')[0]) == line.Id));
             }
         }
 
@@ -116,26 +130,15 @@ public class Program
     
     private static Dictionary<int, string> FilterOffersByUnprocessed(string outputFile, Dictionary<int, string> offers)
     {
-        var lines = File.ReadAllLines(outputFile).ToList();
-        var csv = lines.Select(line => (line.Split(',')).ToList());
-
+        var lines = File.ReadAllLines(outputFile).Where(s => !string.IsNullOrEmpty(s)).ToList();
+        var csv = lines.Select(line => new OutputCsvRecord(line)).ToList();
         
-        foreach (var line in csv)
+        foreach (var line in csv.Where(line => offers.ContainsKey(line.Id)))
         {
-            var id = int.Parse(line[0]);
-            var url = line[1];
-            var title = line[2];
-            var price = line[3];
-            var number = line[4];
+            if (offers[line.Id] != line.Url)
+                throw new Exception("Corrupted output file.");
 
-            var offerToRemove = offers.FirstOrDefault(o => o.Key == id);
-            if (offers.ContainsKey(id)) 
-            {
-                if (offers[id] != url)
-                    throw new Exception("Corrupted output.txt file.");
-
-                offers.Remove(id);
-            }
+            offers.Remove(line.Id);
         }
 
         return offers;

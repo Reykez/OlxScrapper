@@ -4,7 +4,7 @@ using System.Text;
 
 namespace OlxScrapper;
 
-public class TorController
+public static class TorController
 {
     public static string ChangeIp()
     {
@@ -23,8 +23,6 @@ public class TorController
     
     private static void RefreshTor()
     {
-        var ipBefore = CheckCurrentIp();
-        
         var ip = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 9151);
         var server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         try
